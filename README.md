@@ -15,6 +15,7 @@ Le script est concu pour etre leger et rapide afin de limiter la chauffe du RPi.
 ## Fichier
 
 - `doctor.sh`
+- `heardbit.sh`
 
 ## Installation
 
@@ -107,3 +108,63 @@ Objectif: expliquer concretement pourquoi l'alerte est levee, pas seulement donn
 2. Si `ATTENTION` ou `CRITIQUE`, lancer `./doctor.sh --advanced`
 3. Si deconnexions intermittentes sans erreur visible, lancer `./doctor.sh --deep`
 4. Corriger le point principal (alimentation, SD, reseau, service, etc.) puis relancer
+
+## Surveillance continue en tache de fond: `heardbit.sh`
+
+`heardbit.sh` est un daemon de surveillance renforcee (heartbeat/headbit):
+
+- il capture des constantes systeme periodiques (charge, memoire, disque, temperature, reseau)
+- il stocke les dysfonctionnements detectes (logs warning/error, reseau down, throttling, etc.)
+- il garde un rapport consultable si la panne revient
+
+### Installer et lancer
+
+```bash
+chmod +x heardbit.sh
+./heardbit.sh start --interval 30
+```
+
+### Commandes utiles
+
+Verifier l'etat:
+
+```bash
+./heardbit.sh status
+```
+
+Generer le rapport:
+
+```bash
+./heardbit.sh report --last 50
+```
+
+Arreter la surveillance:
+
+```bash
+./heardbit.sh stop
+```
+
+Echantillon unique (test rapide):
+
+```bash
+./heardbit.sh once
+```
+
+### Donnees collectees
+
+Par defaut, les fichiers sont dans `./heardbit_data`:
+
+- `metrics.csv`: constantes periodiques
+- `alerts.log`: alertes detectees avec preuve
+- `journal_events.log`: evenements journal recents sauvegardes
+- `heartbeat.state`: dernier battement et statut
+- `heardbit.pid`: PID du daemon
+
+### Conseil operationnel
+
+En cas de deconnexion inexpliquee:
+
+1. laisser `heardbit` tourner en fond
+2. attendre qu'un incident se reproduise
+3. lancer `./heardbit.sh report --last 100`
+4. utiliser ensuite `./doctor.sh --deep` pour une lecture diagnostic orientee cause racine
