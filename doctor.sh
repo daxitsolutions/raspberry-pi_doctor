@@ -220,6 +220,7 @@ decode_throttle_flags() {
 collect_service_snapshot() {
   SERVICE_SNAPSHOT=""
   SERVICE_DOWN_COUNT=0
+  INACTIVE_SERVICES=""
 
   if ! command_exists systemctl; then
     SERVICE_SNAPSHOT="systemctl indisponible"
@@ -249,12 +250,193 @@ collect_service_snapshot() {
     SERVICE_SNAPSHOT="${SERVICE_SNAPSHOT}- ${unit}: ${active}"$'\n'
     if [[ "$active" != "active" ]]; then
       SERVICE_DOWN_COUNT=$(( SERVICE_DOWN_COUNT + 1 ))
+      INACTIVE_SERVICES="${INACTIVE_SERVICES}${unit}"$'\n'
     fi
   done
 
   if (( found == 0 )); then
     SERVICE_SNAPSHOT="aucun service reseau/ssh standard detecte"
   fi
+}
+
+explain_alert_line() {
+  local category="$1"
+  local raw_line="$2"
+  local line="${raw_line,,}"
+
+  case "$category" in
+    network)
+      if [[ "$line" == *"link is down"* || "$line" == *"link down"* || "$line" == *"carrier lost"* ]]; then
+        echo "Perte du lien reseau (physique ou driver), la machine peut devenir injoignable."
+      elif [[ "$line" == *"deauth"* || "$line" == *"disassoc"* || "$line" == *"ctrl-event-disconnected"* ]]; then
+        echo "Deconnexion Wi-Fi (deauth/disassoc), souvent due au signal, AP ou roaming."
+      elif [[ "$line" == *"dhcp"* && ( "$line" == *"fail"* || "$line" == *"timeout"* || "$line" == *"timed out"* || "$line" == *"no lease"* ) ]]; then
+        echo "Echec DHCP: perte d'IP possible, donc indisponibilite reseau."
+      elif [[ "$line" == *"network unreachable"* || "$line" == *"connection reset"* ]]; then
+        echo "Transport reseau instable ou route indisponible."
+      elif [[ "$line" == *"eth"* && "$line" == *"reset"* ]]; then
+        echo "Interface ethernet resetee (driver/NIC/cable), cause frequente de coupure courte."
+      else
+        echo "Evenement reseau anormal detecte dans les logs."
+      fi
+      ;;
+    power)
+      if [[ "$line" == *"under-voltage"* ]]; then
+        echo "Sous-tension detectee: le RPi peut throttler ou deconnecter des peripheriques."
+      elif [[ "$line" == *"throttl"* ]]; then
+        echo "Throttling actif ou passe: performances degradees et instabilite possible."
+      elif [[ "$line" == *"overheat"* || "$line" == *"thermal"* || "$line" == *"temperature"* ]]; then
+        echo "Contrainte thermique: risque de baisse de frequence ou comportement erratique."
+      else
+        echo "Signal alimentation/thermique suspect."
+      fi
+      ;;
+    kernel)
+      if [[ "$line" == *"watchdog"* ]]; then
+        echo "Watchdog declenche: le systeme ne repondait plus correctement."
+      elif [[ "$line" == *"hung task"* || "$line" == *"blocked for more than"* ]]; then
+        echo "Blocage long d'un thread/processus, possible freeze partiel."
+      elif [[ "$line" == *"rcu"* && "$line" == *"stall"* ]]; then
+        echo "Stall noyau (RCU): forte suspicion de saturation noyau/driver."
+      elif [[ "$line" == *"kernel panic"* || "$line" == *"soft lockup"* || "$line" == *"hard lockup"* ]]; then
+        echo "Evenement noyau severe pouvant provoquer reboot ou indisponibilite."
+      else
+        echo "Anomalie noyau detectee."
+      fi
+      ;;
+    storage)
+      if [[ "$line" == *"i/o error"* || "$line" == *"buffer i/o error"* ]]; then
+        echo "Erreur d'entree/sortie: acces stockage instable (SD/disque)."
+      elif [[ "$line" == *"read-only file system"* ]]; then
+        echo "Systeme de fichiers passe en lecture seule apres erreur."
+      elif [[ "$line" == *"mmc"* && ( "$line" == *"timeout"* || "$line" == *"error"* || "$line" == *"retry"* ) ]]; then
+        echo "Timeout/erreur MMC: carte SD potentiellement en cause."
+      elif [[ "$line" == *"ext4-fs"* ]]; then
+        echo "Alerte EXT4: integrite/fiabilite du systeme de fichiers a verifier."
+      else
+        echo "Anomalie stockage detectee."
+      fi
+      ;;
+    memory)
+      if [[ "$line" == *"oom-killer"* || "$line" == *"out of memory"* || "$line" == *"killed process"* ]]; then
+        echo "Memoire saturee: processus tues par le noyau, impact direct sur disponibilite."
+      else
+        echo "Evenement memoire anormal."
+      fi
+      ;;
+    services)
+      if [[ "$line" == *"failed to start"* ]]; then
+        echo "Demarrage du service en echec."
+      elif [[ "$line" == *"start request repeated too quickly"* ]]; then
+        echo "Boucle de restart: systemd limite les tentatives."
+      elif [[ "$line" == *"timed out"* ]]; then
+        echo "Timeout de demarrage/arret, le service peut rester indisponible."
+      elif [[ "$line" == *"segfault"* || "$line" == *"core dumped"* ]]; then
+        echo "Crash applicatif du service."
+      elif [[ "$line" == *"main process exited"* || "$line" == *"failed with result"* ]]; then
+        echo "Processus principal termine anormalement."
+      else
+        echo "Anomalie de service detectee."
+      fi
+      ;;
+    time)
+      if [[ "$line" == *"time has been changed"* || "$line" == *"clock jump"* ]]; then
+        echo "Saut d'horloge: peut casser sessions TLS, DNS cache ou jobs."
+      elif [[ "$line" == *"timesyncd"* || "$line" == *"chronyd"* || "$line" == *"ntp"* ]]; then
+        echo "Synchronisation horaire instable ou corrective."
+      else
+        echo "Anomalie de synchronisation temporelle."
+      fi
+      ;;
+    usb)
+      if [[ "$line" == *"usb"* && "$line" == *"reset"* ]]; then
+        echo "Reset USB detecte: possible coupure NIC USB ou peripherique."
+      elif [[ "$line" == *"device descriptor read"* ]]; then
+        echo "Probleme enumeration USB, souvent alimentation/cable/peripherique."
+      elif [[ "$line" == *"usb disconnect"* ]]; then
+        echo "Peripherique USB deconnecte pendant fonctionnement."
+      else
+        echo "Evenement USB suspect."
+      fi
+      ;;
+    *)
+      echo "Evenement suspect detecte."
+      ;;
+  esac
+}
+
+print_investigation_from_logs() {
+  local label="$1"
+  local count="$2"
+  local category="$3"
+  local pattern="$4"
+  local logs="$5"
+  local max_items="${6:-8}"
+  local matched
+
+  if (( count <= 0 )); then
+    return
+  fi
+
+  echo
+  echo "Investigation poussee: $label"
+  matched="$(printf "%s\n" "$logs" | grep -Ei "$pattern" | tail -n "$max_items" || true)"
+  if [[ -z "$(printf "%s\n" "$matched" | sed '/^[[:space:]]*$/d')" ]]; then
+    echo "- Aucun extrait de log disponible pour ce signal."
+    return
+  fi
+
+  while IFS= read -r line; do
+    if [[ -z "$(printf "%s" "$line" | sed 's/[[:space:]]//g')" ]]; then
+      continue
+    fi
+    echo "- Ligne: $line"
+    echo "  Cause probable: $(explain_alert_line "$category" "$line")"
+  done <<< "$matched"
+}
+
+investigate_inactive_services() {
+  local unit active substate service_logs
+  if (( SERVICE_DOWN_COUNT <= 0 )); then
+    return
+  fi
+
+  echo
+  echo "Investigation poussee: services critiques inactifs"
+
+  if [[ -z "$(printf "%s\n" "$INACTIVE_SERVICES" | sed '/^[[:space:]]*$/d')" ]]; then
+    echo "- Alerte active mais la liste des services inactifs est indisponible."
+    return
+  fi
+
+  while IFS= read -r unit; do
+    if [[ -z "$unit" ]]; then
+      continue
+    fi
+
+    active="$(systemctl is-active "$unit" 2>/dev/null || true)"
+    substate="$(systemctl show "$unit" -p SubState --value 2>/dev/null || true)"
+    echo "- Source alerte: systemctl is-active $unit => ${active:-unknown} (SubState: ${substate:-n/a})"
+
+    service_logs=""
+    if command_exists journalctl; then
+      service_logs="$(journalctl -u "$unit" --since "$DEEP_WINDOW" -p warning..alert -n 6 --no-pager -o short-iso 2>/dev/null || true)"
+    elif [[ -r /var/log/syslog ]]; then
+      service_logs="$(tail -n 3000 /var/log/syslog 2>/dev/null | grep -Ei "$unit|failed|timeout|segfault|restart|dependency failed|start request repeated" | tail -n 6 || true)"
+    fi
+
+    if [[ -n "$(printf "%s\n" "$service_logs" | sed '/^[[:space:]]*$/d')" ]]; then
+      while IFS= read -r line; do
+        if [[ -z "$(printf "%s" "$line" | sed 's/[[:space:]]//g')" ]]; then
+          continue
+        fi
+        echo "  Ligne: $line"
+        echo "  Cause probable: $(explain_alert_line "services" "$line")"
+      done <<< "$service_logs"
+    else
+      echo "  Aucun warning/error recent sur $unit dans la fenetre $DEEP_WINDOW."
+    fi
+  done <<< "$INACTIVE_SERVICES"
 }
 
 LOGS="$(collect_logs_priority "$WINDOW" "$MAX_LINES" "err..alert")"
@@ -353,20 +535,31 @@ print_deep() {
   local deep_logs deep_prev_boot_logs deep_suspect_logs
   local deep_total deep_storage deep_memory deep_power deep_network deep_service deep_kernel deep_time deep_usb
   local prev_boot_warn_count uptime_str uptime_sec recent_reboot_flag deep_score deep_status uptime_known
-  local throttle_raw
+  local throttle_raw investigation_done
+  local p_storage p_memory p_power p_network p_service p_kernel p_time p_usb p_suspect
+
+  p_storage='I/O error|EXT4-fs (warning|error)|Buffer I/O error|mmc[0-9].*(error|timeout|retry)|read-only file system|blk_update_request'
+  p_memory='out of memory|oom-killer|invoked oom-killer|Killed process .* out of memory|memory cgroup out of memory'
+  p_power='under-voltage|throttl|overheat|thermal|voltage normalised|hardware temperature'
+  p_network='link is down|link down|deauth|disassoc|CTRL-EVENT-DISCONNECTED|carrier lost|dhcp.*(fail|timeout|timed out|no lease)|network unreachable|connection reset|wlan[0-9].*(disconnect|deauth)|eth[0-9].*(down|reset)'
+  p_service='Failed to start|start request repeated too quickly|Main process exited|timed out|dependency failed|Failed with result|segfault|core dumped'
+  p_kernel='kernel panic|BUG:|Call Trace|watchdog|hung task|rcu.*stalled|soft lockup|hard LOCKUP|blocked for more than'
+  p_time='Time has been changed|clock jump|timesyncd.*(timed out|synchron)|chronyd.*(step|offset)|NTP.*(step|offset)'
+  p_usb='usb [0-9-]+: reset|xHCI host controller|device descriptor read|USB disconnect'
+  p_suspect='under-voltage|throttl|overheat|link is down|deauth|disassoc|carrier lost|dhcp|oom|segfault|watchdog|kernel panic|I/O error|read-only file system|Failed to start|timed out|connection reset|network unreachable'
 
   deep_logs="$(collect_logs_all "$DEEP_WINDOW" "$DEEP_MAX_LINES")"
   deep_prev_boot_logs="$(collect_prev_boot_logs)"
   deep_total="$(count_non_empty_lines "$deep_logs")"
 
-  deep_storage="$(count_pattern_in_logs "$deep_logs" 'I/O error|EXT4-fs (warning|error)|Buffer I/O error|mmc[0-9].*(error|timeout|retry)|read-only file system|blk_update_request')"
-  deep_memory="$(count_pattern_in_logs "$deep_logs" 'out of memory|oom-killer|invoked oom-killer|Killed process .* out of memory|memory cgroup out of memory')"
-  deep_power="$(count_pattern_in_logs "$deep_logs" 'under-voltage|throttl|overheat|thermal|voltage normalised|hardware temperature')"
-  deep_network="$(count_pattern_in_logs "$deep_logs" 'link is down|link down|deauth|disassoc|CTRL-EVENT-DISCONNECTED|carrier lost|dhcp.*(fail|timeout|timed out|no lease)|network unreachable|connection reset|wlan[0-9].*(disconnect|deauth)|eth[0-9].*(down|reset)')"
-  deep_service="$(count_pattern_in_logs "$deep_logs" 'Failed to start|start request repeated too quickly|Main process exited|timed out|dependency failed|Failed with result|segfault|core dumped')"
-  deep_kernel="$(count_pattern_in_logs "$deep_logs" 'kernel panic|BUG:|Call Trace|watchdog|hung task|rcu.*stalled|soft lockup|hard LOCKUP|blocked for more than')"
-  deep_time="$(count_pattern_in_logs "$deep_logs" 'Time has been changed|clock jump|timesyncd.*(timed out|synchron)|chronyd.*(step|offset)|NTP.*(step|offset)')"
-  deep_usb="$(count_pattern_in_logs "$deep_logs" 'usb [0-9-]+: reset|xHCI host controller|device descriptor read|USB disconnect')"
+  deep_storage="$(count_pattern_in_logs "$deep_logs" "$p_storage")"
+  deep_memory="$(count_pattern_in_logs "$deep_logs" "$p_memory")"
+  deep_power="$(count_pattern_in_logs "$deep_logs" "$p_power")"
+  deep_network="$(count_pattern_in_logs "$deep_logs" "$p_network")"
+  deep_service="$(count_pattern_in_logs "$deep_logs" "$p_service")"
+  deep_kernel="$(count_pattern_in_logs "$deep_logs" "$p_kernel")"
+  deep_time="$(count_pattern_in_logs "$deep_logs" "$p_time")"
+  deep_usb="$(count_pattern_in_logs "$deep_logs" "$p_usb")"
 
   prev_boot_warn_count="$(count_non_empty_lines "$deep_prev_boot_logs")"
   uptime_str="$(human_uptime)"
@@ -391,7 +584,7 @@ print_deep() {
   deep_score=$(( deep_storage * 3 + deep_memory * 2 + deep_power * 3 + deep_network * 3 + deep_service * 2 + deep_kernel * 4 + deep_time + deep_usb + prev_boot_warn_count / 8 + SERVICE_DOWN_COUNT * 4 + recent_reboot_flag * 2 + THROTTLE_HISTORY_FLAG * 5 ))
   deep_status="$(deep_level "$deep_score")"
 
-  deep_suspect_logs="$(printf "%s\n" "$deep_logs" | grep -Ei 'under-voltage|throttl|overheat|link is down|deauth|disassoc|carrier lost|dhcp|oom|segfault|watchdog|kernel panic|I/O error|read-only file system|Failed to start|timed out|connection reset|network unreachable' | tail -n 20 || true)"
+  deep_suspect_logs="$(printf "%s\n" "$deep_logs" | grep -Ei "$p_suspect" | tail -n 20 || true)"
 
   echo "Raspberry Pi Doctor (mode deep)"
   echo "Etat indisponibilite: $deep_status"
@@ -428,6 +621,66 @@ print_deep() {
   echo
   echo "Etat actuel des services critiques:"
   printf "%s\n" "$SERVICE_SNAPSHOT"
+
+  investigation_done=0
+  if (( deep_network > 0 || deep_power > 0 || deep_kernel > 0 || deep_storage > 0 || deep_memory > 0 || deep_service > 0 || deep_time > 0 || deep_usb > 0 || prev_boot_warn_count > 0 || SERVICE_DOWN_COUNT > 0 || THROTTLE_HISTORY_FLAG == 1 )); then
+    echo
+    echo "Investigations poussees (signaux > 0):"
+  fi
+
+  if (( deep_network > 0 )); then
+    investigation_done=1
+    print_investigation_from_logs "reseau (flap/coupure)" "$deep_network" "network" "$p_network" "$deep_logs" 10
+  fi
+  if (( deep_power > 0 )); then
+    investigation_done=1
+    print_investigation_from_logs "alimentation/thermique" "$deep_power" "power" "$p_power" "$deep_logs" 10
+  fi
+  if (( THROTTLE_HISTORY_FLAG == 1 )); then
+    investigation_done=1
+    echo
+    echo "Investigation poussee: historique de throttling RPi"
+    echo "- Source alerte: vcgencmd get_throttled => ${throttle_raw:-n/a}"
+    echo "  Cause probable: $(explain_alert_line "power" "$THROTTLE_SUMMARY")"
+  fi
+  if (( deep_kernel > 0 )); then
+    investigation_done=1
+    print_investigation_from_logs "noyau/hang/watchdog" "$deep_kernel" "kernel" "$p_kernel" "$deep_logs" 8
+  fi
+  if (( deep_storage > 0 )); then
+    investigation_done=1
+    print_investigation_from_logs "stockage I/O/SD" "$deep_storage" "storage" "$p_storage" "$deep_logs" 8
+  fi
+  if (( deep_memory > 0 )); then
+    investigation_done=1
+    print_investigation_from_logs "memoire OOM" "$deep_memory" "memory" "$p_memory" "$deep_logs" 8
+  fi
+  if (( deep_service > 0 )); then
+    investigation_done=1
+    print_investigation_from_logs "services critiques (crash/timeouts)" "$deep_service" "services" "$p_service" "$deep_logs" 10
+  fi
+  if (( SERVICE_DOWN_COUNT > 0 )); then
+    investigation_done=1
+    investigate_inactive_services
+  fi
+  if (( deep_time > 0 )); then
+    investigation_done=1
+    print_investigation_from_logs "sauts de temps/NTP" "$deep_time" "time" "$p_time" "$deep_logs" 6
+  fi
+  if (( deep_usb > 0 )); then
+    investigation_done=1
+    print_investigation_from_logs "USB/NIC resets" "$deep_usb" "usb" "$p_usb" "$deep_logs" 6
+  fi
+  if (( prev_boot_warn_count > 0 )); then
+    investigation_done=1
+    print_investigation_from_logs "warnings boot precedent" "$prev_boot_warn_count" "kernel" "." "$deep_prev_boot_logs" 8
+  fi
+
+  if (( investigation_done == 0 )); then
+    echo
+    echo "Investigations poussees (signaux > 0):"
+    echo "- Aucun signal > 0, pas d'investigation supplementaire."
+  fi
 
   echo
   echo "Evenements suspects recents:"

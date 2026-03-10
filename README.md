@@ -89,6 +89,17 @@ En `--deep`, la fenetre est etendue (`7 days ago`) avec une limite de lignes pou
 - inspecte l'historique de throttling Raspberry Pi via `vcgencmd get_throttled` (si dispo)
 - verifie l'etat actuel des services reseau/SSH
 - prend un historique plus large (7 jours)
+- si un signal est `> 0`, lance automatiquement une investigation poussee
+
+## Investigations poussees automatiques (`--deep`)
+
+Quand un signal est non nul (ex: `reseau=1` ou `services critiques inactifs=2`), le script ajoute:
+
+- les lignes exactes qui ont declenche l'alerte
+- une explication lisible de la cause probable pour chaque ligne
+- pour les services inactifs: source `systemctl is-active`, sous-etat (`SubState`) et logs recents par service
+
+Objectif: expliquer concretement pourquoi l'alerte est levee, pas seulement donner un compteur.
 
 ## Exemple de workflow
 
