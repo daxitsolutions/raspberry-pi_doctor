@@ -13,12 +13,12 @@ Le script est concu pour etre leger et rapide afin de limiter la chauffe du RPi.
 
 ## Fichier
 
-- `rpi_diagnostic.sh`
+- `doctor.sh`
 
 ## Installation
 
 ```bash
-chmod +x rpi_diagnostic.sh
+chmod +x doctor.sh
 ```
 
 ## Utilisation
@@ -26,25 +26,25 @@ chmod +x rpi_diagnostic.sh
 Mode simple (par defaut):
 
 ```bash
-./rpi_diagnostic.sh
+./doctor.sh
 ```
 
 Mode simple explicite:
 
 ```bash
-./rpi_diagnostic.sh --noob
+./doctor.sh --noob
 ```
 
 Mode detaille:
 
 ```bash
-./rpi_diagnostic.sh --advanced
+./doctor.sh --advanced
 ```
 
 Aide:
 
 ```bash
-./rpi_diagnostic.sh --help
+./doctor.sh --help
 ```
 
 Note: sur certains systemes, lancer avec `sudo` permet d'avoir une vision plus complete des logs.
@@ -70,6 +70,6 @@ Pour rester rapide et eviter une charge inutile:
 
 ## Exemple de workflow
 
-1. Lancer `./rpi_diagnostic.sh --noob`
-2. Si `ATTENTION` ou `CRITIQUE`, lancer `./rpi_diagnostic.sh --advanced`
+1. Lancer `./doctor.sh --noob`
+2. Si `ATTENTION` ou `CRITIQUE`, lancer `./doctor.sh --advanced`
 3. Corriger le point principal (alimentation, SD, service, etc.) puis relancer

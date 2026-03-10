@@ -6,14 +6,13 @@ WINDOW="2 hours ago"
 MAX_LINES=200
 
 print_help() {
-  cat <<'EOF'
-Usage: ./rpi_diagnostic.sh [--noob|--advanced] [--help]
-
-Options:
-  --noob       Diagnostic simple (par defaut)
-  --advanced   Diagnostic detaille
-  --help       Affiche cette aide
-EOF
+  printf '%s\n' \
+    "Usage: ./doctor.sh [--noob|--advanced] [--help]" \
+    "" \
+    "Options:" \
+    "  --noob       Diagnostic simple (par defaut)" \
+    "  --advanced   Diagnostic detaille" \
+    "  --help       Affiche cette aide"
 }
 
 while [[ $# -gt 0 ]]; do
