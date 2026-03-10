@@ -122,6 +122,8 @@ Objectif: expliquer concretement pourquoi l'alerte est levee, pas seulement donn
 ```bash
 chmod +x heardbit.sh
 ./heardbit.sh start --interval 30
+# alias accepte:
+./heardbit.sh --start --interval 30
 ```
 
 ### Commandes utiles
@@ -144,6 +146,12 @@ Arreter la surveillance:
 ./heardbit.sh stop
 ```
 
+Nettoyer tous les fichiers de surveillance existants:
+
+```bash
+./heardbit.sh --clean
+```
+
 Echantillon unique (test rapide):
 
 ```bash
@@ -152,7 +160,7 @@ Echantillon unique (test rapide):
 
 ### Donnees collectees
 
-Par defaut, les fichiers sont dans `./heardbit_data`:
+Par defaut, les fichiers sont dans `/tmp/heardbit` (pas dans le repo):
 
 - `metrics.csv`: constantes periodiques
 - `alerts.log`: alertes detectees avec preuve

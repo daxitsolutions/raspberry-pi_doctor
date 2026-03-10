@@ -13,7 +13,7 @@ fi
 INTERVAL=30
 REPORT_LAST=30
 JOURNAL_MAX=120
-DATA_DIR="${SCRIPT_DIR}/heardbit_data"
+DATA_DIR="/tmp/heardbit"
 
 TEMP_WARN_C=75
 DISK_WARN_PCT=90
@@ -29,20 +29,34 @@ RUNTIME_LOG_FILE=""
 JOURNAL_EVENTS_FILE=""
 
 usage() {
-  cat <<'EOF'
-Usage:
-  ./heardbit.sh start [--interval N] [--data-dir DIR]
-  ./heardbit.sh stop [--data-dir DIR]
-  ./heardbit.sh status [--data-dir DIR]
-  ./heardbit.sh report [--last N] [--data-dir DIR]
-  ./heardbit.sh once [--data-dir DIR]
-  ./heardbit.sh run [--interval N] [--data-dir DIR]
+  printf '%s\n' \
+    "Usage:" \
+    "  ./heardbit.sh start [--interval N] [--data-dir DIR]" \
+    "  ./heardbit.sh --start [--interval N] [--data-dir DIR]" \
+    "  ./heardbit.sh stop|--stop [--data-dir DIR]" \
+    "  ./heardbit.sh status|--status [--data-dir DIR]" \
+    "  ./heardbit.sh report|--report [--last N] [--data-dir DIR]" \
+    "  ./heardbit.sh clean|--clean [--data-dir DIR]" \
+    "  ./heardbit.sh once|--once [--data-dir DIR]" \
+    "  ./heardbit.sh run|--run [--interval N] [--data-dir DIR]" \
+    "" \
+    "Description:" \
+    "  Daemon de surveillance renforcee (heartbeat/headbit) pour Raspberry Pi." \
+    "  Il enregistre les constantes systeme et les dysfonctionnements detectes," \
+    "  afin de consulter un rapport si la panne se reproduit."
+}
 
-Description:
-  Daemon de surveillance renforcee (heartbeat/headbit) pour Raspberry Pi.
-  Il enregistre les constantes systeme et les dysfonctionnements detectes,
-  afin de consulter un rapport si la panne se reproduit.
-EOF
+normalize_command() {
+  case "$COMMAND" in
+    start|--start) COMMAND="start" ;;
+    stop|--stop) COMMAND="stop" ;;
+    status|--status) COMMAND="status" ;;
+    report|--report) COMMAND="report" ;;
+    clean|--clean) COMMAND="clean" ;;
+    once|--once) COMMAND="once" ;;
+    run|--run) COMMAND="run" ;;
+    help|--help|-h) COMMAND="help" ;;
+  esac
 }
 
 parse_args() {
@@ -228,9 +242,7 @@ load_state() {
 
 save_state() {
   local last_epoch="$1"
-  cat > "$STATE_FILE" <<EOF
-LAST_JOURNAL_EPOCH=$last_epoch
-EOF
+  printf 'LAST_JOURNAL_EPOCH=%s\n' "$last_epoch" > "$STATE_FILE"
 }
 
 write_metric_header_if_needed() {
@@ -294,11 +306,7 @@ write_heartbeat() {
   local anomalies="$2"
   local ts
   ts="$(now_iso)"
-  cat > "${HEARTBEAT_FILE}.tmp" <<EOF
-timestamp=$ts
-status=$status
-new_alerts=$anomalies
-EOF
+  printf 'timestamp=%s\nstatus=%s\nnew_alerts=%s\n' "$ts" "$status" "$anomalies" > "${HEARTBEAT_FILE}.tmp"
   mv "${HEARTBEAT_FILE}.tmp" "$HEARTBEAT_FILE"
 }
 
@@ -505,20 +513,41 @@ show_report() {
   fi
 }
 
+clean_data() {
+  local running_pid=""
+  if is_running; then
+    running_pid="$(cat "$PID_FILE" 2>/dev/null || true)"
+    stop_daemon
+  fi
+
+  if [[ -d "$DATA_DIR" ]]; then
+    rm -rf "${DATA_DIR:?}/"*
+  fi
+  mkdir -p "$DATA_DIR"
+
+  if [[ -n "$running_pid" ]]; then
+    echo "heardbit etait actif (pid=$running_pid) et a ete arrete."
+  fi
+  echo "Nettoyage termine: $DATA_DIR"
+}
+
 main() {
+  normalize_command
   parse_args "$@"
   require_int "$INTERVAL" "interval"
   require_int "$REPORT_LAST" "last"
   require_int "$JOURNAL_MAX" "journal-max"
   init_paths
-  ensure_data_dir
-  touch "$ALERTS_FILE" "$JOURNAL_EVENTS_FILE"
 
   case "$COMMAND" in
     start)
+      ensure_data_dir
+      touch "$ALERTS_FILE" "$JOURNAL_EVENTS_FILE"
       start_daemon
       ;;
     run)
+      ensure_data_dir
+      touch "$ALERTS_FILE" "$JOURNAL_EVENTS_FILE"
       run_loop
       ;;
     stop)
@@ -530,7 +559,12 @@ main() {
     report)
       show_report
       ;;
+    clean)
+      clean_data
+      ;;
     once)
+      ensure_data_dir
+      touch "$ALERTS_FILE" "$JOURNAL_EVENTS_FILE"
       sample_once
       echo "Echantillon collecte. Voir: $DATA_DIR"
       ;;
