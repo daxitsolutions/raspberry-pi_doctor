@@ -4,10 +4,11 @@ Script de diagnostic rapide pour Raspberry Pi, base sur les erreurs systeme rece
 
 ## Objectif
 
-Donner un etat de sante simple de la machine, avec deux niveaux de lecture:
+Donner un etat de sante simple de la machine, avec trois niveaux de lecture:
 
 - `--noob`: resume tres simple et actions conseillees
 - `--advanced`: details techniques + top erreurs
+- `--deep`: investigation poussee des causes d'indisponibilite
 
 Le script est concu pour etre leger et rapide afin de limiter la chauffe du RPi.
 
@@ -41,6 +42,12 @@ Mode detaille:
 ./doctor.sh --advanced
 ```
 
+Mode investigation indisponibilite:
+
+```bash
+./doctor.sh --deep
+```
+
 Aide:
 
 ```bash
@@ -51,7 +58,7 @@ Note: sur certains systemes, lancer avec `sudo` permet d'avoir une vision plus c
 
 ## Ce que le script analyse
 
-Le script lit les erreurs recentes (`journalctl` en priorite, sinon `/var/log/syslog`) et cherche des signaux de:
+Le script lit les logs systeme (`journalctl` en priorite, sinon `/var/log/syslog`) et cherche des signaux de:
 
 - stockage (carte SD/disque)
 - memoire (OOM)
@@ -59,6 +66,8 @@ Le script lit les erreurs recentes (`journalctl` en priorite, sinon `/var/log/sy
 - reseau
 - services (failed/timed out/segfault)
 - noyau
+- synchronisation de l'heure (NTP/clock jump)
+- reset USB pouvant impacter un NIC externe
 
 ## Optimisations de performance
 
@@ -68,8 +77,22 @@ Pour rester rapide et eviter une charge inutile:
 - limite de lecture: `200` lignes max
 - aucune boucle lourde ni scan complet du journal
 
+En `--deep`, la fenetre est etendue (`7 days ago`) avec une limite de lignes pour rester maitrisee (`6000`).
+
+## Pourquoi `--deep` peut trouver des pannes que `--noob` ne voit pas
+
+`--noob` et `--advanced` se basent surtout sur les erreurs critiques recentes.  
+`--deep` va plus loin pour les pannes intermittentes:
+
+- cherche aussi des warnings/evenements non critiques mais suspects
+- analyse les coupures lien reseau (wifi/ethernet)
+- inspecte l'historique de throttling Raspberry Pi via `vcgencmd get_throttled` (si dispo)
+- verifie l'etat actuel des services reseau/SSH
+- prend un historique plus large (7 jours)
+
 ## Exemple de workflow
 
 1. Lancer `./doctor.sh --noob`
 2. Si `ATTENTION` ou `CRITIQUE`, lancer `./doctor.sh --advanced`
-3. Corriger le point principal (alimentation, SD, service, etc.) puis relancer
+3. Si deconnexions intermittentes sans erreur visible, lancer `./doctor.sh --deep`
+4. Corriger le point principal (alimentation, SD, reseau, service, etc.) puis relancer
